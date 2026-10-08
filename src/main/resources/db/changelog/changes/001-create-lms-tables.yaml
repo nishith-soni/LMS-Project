@@ -1,0 +1,131 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-lms-tables
+      author: nishith
+      changes:
+        # 1. Course Table
+        - createTable:
+            tableName: course
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tenant_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: title
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: description
+                  type: TEXT
+
+        # 2. Student Table
+        - createTable:
+            tableName: student
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tenant_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: email
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+
+        # 3. Enrollment Table (Join Table with Payload)
+        - createTable:
+            tableName: enrollment
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: tenant_id
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: course_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: student_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: grade
+                  type: DECIMAL(5, 2)
+                  constraints:
+                    nullable: true
+
+        # Foreign Keys
+        - addForeignKeyConstraint:
+            baseTableName: enrollment
+            baseColumnNames: course_id
+            referencedTableName: course
+            referencedColumnNames: id
+            constraintName: fk_enrollment_course
+            onDelete: CASCADE
+
+        - addForeignKeyConstraint:
+            baseTableName: enrollment
+            baseColumnNames: student_id
+            referencedTableName: student
+            referencedColumnNames: id
+            constraintName: fk_enrollment_student
+            onDelete: CASCADE
+
+        # Prevent duplicate enrollment in the same tenant
+        - addUniqueConstraint:
+            tableName: enrollment
+            columnNames: tenant_id, course_id, student_id
+            constraintName: uq_tenant_course_student
+
+        # Performance Indexes on tenant_id
+        - createIndex:
+            tableName: course
+            indexName: idx_course_tenant
+            columns:
+              - column:
+                  name: tenant_id
+        - createIndex:
+            tableName: student
+            indexName: idx_student_tenant
+            columns:
+              - column:
+                  name: tenant_id
+        - createIndex:
+            tableName: enrollment
+            indexName: idx_enrollment_tenant
+            columns:
+              - column:
+                  name: tenant_id

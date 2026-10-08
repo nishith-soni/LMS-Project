@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: lms-backend
+
+  datasource:
+    url: jdbc:mysql://localhost:3306/lms_db?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: lms_user
+    password: lmspassword
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+graphql:
+  servlet:
+    mapping: /graphql
+    enabled: true
+    cors-enabled: true
