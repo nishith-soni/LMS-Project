@@ -58,6 +58,12 @@
 			<version>15.0.0</version>
 		</dependency>
 
+		<!-- Spring AOP for Tenant Aspect -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aop</artifactId>
+		</dependency>
+
 		<!-- Testing (JUnit 5, Mockito, AssertJ) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
