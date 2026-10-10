@@ -66,7 +66,7 @@ public class EnrollmentService {
             throw new InvalidGradeException("Grade cannot be null.");
         }
         if (grade.compareTo(BigDecimal.ZERO) < 0 || grade.compareTo(BigDecimal.valueOf(100)) > 0) {
-            throw new IllegalArgumentException("Grade must be between 0 and 100. Provided grade: " + grade);
+            throw new InvalidGradeException("Grade must be between 0 and 100. Provided grade: " + grade);
         }
     }
 }
