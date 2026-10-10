@@ -1,0 +1,34 @@
+type Query {
+    courses: [Course!]!
+    course(id: ID!): Course
+    student(id: ID!): Student
+}
+
+type Mutation {
+    createCourse(title: String!, description: String): Course!
+    createStudent(name: String!, email: String!): Student!
+    enrollStudent(courseId: ID!, studentId: ID!): Enrollment!
+    setGrade(courseId: ID!, studentId: ID!, grade: Float!): Enrollment!
+    dropStudent(courseId: ID!, studentId: ID!): Boolean!
+}
+
+type Course {
+    id: ID!
+    title: String!
+    description: String
+    enrollments: [Enrollment!]!
+}
+
+type Student {
+    id: ID!
+    name: String!
+    email: String!
+    enrollments: [Enrollment!]!
+}
+
+type Enrollment {
+    id: ID!
+    grade: Float
+    course: Course!
+    student: Student!
+}

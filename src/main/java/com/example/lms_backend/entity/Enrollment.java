@@ -2,6 +2,7 @@ package com.example.lms_backend.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.Filter;
 
 import java.math.BigDecimal;
 
@@ -12,6 +13,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Filter(name = "tenantFilter", condition = "tenant_id = :tenantId")
 public class Enrollment extends BaseTenantEntity {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
