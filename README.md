@@ -2,15 +2,16 @@
 
 ## 1. Overview
 
-This project is a multi-tenant Learning Management System (LMS) backend built with Spring Boot 3.2 and Java 17.
+This project is an enterprise-grade multi-tenant Learning Management System (LMS) backend built with Spring Boot 3.2 and Java 17.
 
-The service manages courses, students, enrollments, and grades while enforcing strict data isolation between schools (tenants) across both relational storage and in-memory caches:
+The service manages courses, students, enrollments, and grading while maintaining strict data isolation between schools (tenants) across database queries, in-memory caching, and asynchronous event streams:
 
-* **Tenant Isolation**: Every database table includes a `tenant_id` column. Incoming requests supply a `tenant-id` HTTP header, which binds to a thread-local context and triggers a parameterized Hibernate session filter (`@Filter`). This appends tenant filtering to all queries automatically without polluting repository logic.
-* **Tenant-Scoped Redis Caching (Stretch Goal)**: Course rosters are cached in Redis using compound tenant-aware keys (`course_roster::<tenantId>:<courseId>`) to prevent cross-tenant cache contamination. Roster data is serialized through a dedicated `CourseRoster` wrapper to avoid top-level collection deserialization issues. Caches automatically invalidate on enrollment creation, grade updates, and student drops.
-* **Schema Versioning**: Database initialization and table definitions (`course`, `student`, `enrollment`) are managed strictly via Liquibase migrations.
+* **Dynamic Multi-Tenant Isolation**: Every database table includes a `tenant_id` column. Incoming requests supply a `tenant-id` HTTP header, which binds to a thread-safe `TenantContext` (`ThreadLocal`). A Spring AOP aspect (`TenantAspect`) intercepts service calls to activate Hibernate's parameterized `@Filter("tenantFilter")`. Single-entity lookups use explicit JPQL queries to guarantee that primary-key lookups enforce tenant boundaries and return `NOT_FOUND` across tenants.
+* **Tenant-Scoped Redis Caching (Stretch Goal 1)**: Course rosters are cached in Redis using compound tenant-aware keys (`course_roster::<tenantId>:<courseId>`) to prevent cross-tenant cache contamination. Roster collections are encapsulated inside a dedicated `CourseRoster` DTO wrapper to avoid collection-level Jackson serialization pitfalls. Caches automatically invalidate on enrollment creation, grade updates, and student drops.
+* **Asynchronous Event Pipeline via LocalStack SQS (Stretch Goal 2)**: Core business mutations decouple heavy downstream actions by publishing tenant-tagged events (`EnrollmentEvent`) to an Amazon SQS queue hosted locally via LocalStack. An asynchronous consumer (`@SqsListener`) processes these events in the background without blocking the GraphQL request thread.
+* **Schema Migration & Versioning**: Database initialization and table definitions (`course`, `student`, `enrollment`) are strictly version-controlled using Liquibase YAML changesets.
 * **API Layer**: Exposes a schema-first GraphQL API using Kickstart GraphQL (`graphql-spring-boot-starter`).
-* **Automated Verification**: End-to-end multi-tenancy rules, roster caching, error handling, and business logic are tested via Cucumber BDD and JUnit 5.
+* **Automated BDD Verification**: End-to-end multi-tenancy rules, roster caching, validation boundaries, and GraphQL error mappings are tested via Cucumber BDD and JUnit 5.
 
 ### Tech Stack
 * **Language & Runtime**: Java 17
@@ -18,37 +19,93 @@ The service manages courses, students, enrollments, and grades while enforcing s
 * **API Engine**: Kickstart GraphQL 15.0.0
 * **Persistence**: Spring Data JPA, Hibernate 6.4
 * **Cache**: Redis 7.0 (Spring Cache + Spring Data Redis)
+* **Messaging**: LocalStack 3.0 (AWS SQS) + Spring Cloud AWS SQS 3.1.1
 * **Database**: MySQL 8.0 (Dockerized)
 * **Migrations**: Liquibase
 * **BDD Testing**: Cucumber 7.15 + JUnit Platform
 
 ---
 
-## 2. Docker & Infrastructure Setup
+## 2. Architecture & Design Patterns
 
-The infrastructure services (MySQL 8 and Redis 7) run containerized via `docker-compose.yml`.
+```
+                                 HTTP Request (Header: tenant-id)
+                                                │
+                                                ▼
+                                    ┌───────────────────────┐
+                                    │   TenantHttpFilter    │ (Extracts tenant-id into ThreadLocal)
+                                    └───────────┬───────────┘
+                                                │
+                                                ▼
+                                    ┌───────────────────────┐
+                                    │    GraphQL Servlet    │
+                                    └───────────┬───────────┘
+                                                │
+                                                ▼
+                                    ┌───────────────────────┐
+                                    │     TenantAspect      │ (Activates Hibernate tenantFilter)
+                                    └───────────┬───────────┘
+                                                │
+                        ┌───────────────────────┴───────────────────────┐
+                        ▼                                               ▼
+             ┌─────────────────────┐                         ┌─────────────────────┐
+             │   Course / Student  │                         │  EnrollmentService  │
+             └──────────┬──────────┘                         └──────────┬──────────┘
+                        │                                               │
+                        │                                   ┌───────────┴───────────┐
+                        ▼                                   ▼                       ▼
+            ┌───────────────────────┐             ┌───────────────────┐   ┌───────────────────┐
+            │     MySQL 8 (JPA)     │             │   RosterService   │   │  EventPublisher   │
+            │ (where tenant_id = ?) │             │   (Redis Cache)   │   │  (LocalStack SQS) │
+            └───────────────────────┘             └─────────┬─────────┘   └─────────┬─────────┘
+                                                            │                       │
+                                                            ▼                       ▼
+                                                  course_roster::<tenant>   lms-enrollment-events
+                                                                                    │
+                                                                                    ▼
+                                                                          ┌───────────────────┐
+                                                                          │   EventConsumer   │
+                                                                          │   (@SqsListener)  │
+                                                                          └───────────────────┘
+```
 
-### Start MySQL and Redis
+1. **Request Lifecycle**: `TenantHttpFilter` extracts the `tenant-id` header and sets it in `TenantContext`. `OpenEntityManagerInViewFilter` ensures the Hibernate session remains open across nested GraphQL field traversals.
+2. **Data Layer Isolation**: Hibernate's `@Filter` appends `WHERE tenant_id = :tenantId` to queries. Entity inserts automatically populate `tenant_id` via a JPA `@PrePersist` lifecycle listener on `BaseTenantEntity`.
+3. **Caching Strategy**: Course rosters are retrieved through `CourseResolver`. Cache keys combine tenant and course identifiers: `T(TenantContext).getTenantId() + ':' + #courseId`. When mutations alter enrollments, `RosterService.evictRoster()` purges the tenant-specific key.
+4. **Event Pipeline**: Mutations publish `EnrollmentEvent` payloads carrying event type, tenant ID, course ID, student ID, and timestamps via `SqsTemplate`. An asynchronous `@SqsListener` on `lms-enrollment-events` consumes and processes messages decoupled from the API caller.
+
+---
+
+## 3. Docker & Infrastructure Setup
+
+All supporting services (MySQL 8, Redis 7, and LocalStack) run containerized via `docker-compose.yml`.
+
+### Start All Infrastructure Containers
 ```bash
 docker compose up -d
 ```
 
-### Check Container Status
+### Check Container Health
 ```bash
 docker ps
 ```
-*Expected: Containers named `lms-mysql` (port 3306) and `lms-redis` (port 6379) with status `Up`.*
+*Expected output: Three containers running with status `Up`:*
+* `lms-mysql` on port `3306`
+* `lms-redis` on port `6379`
+* `lms-localstack` on port `4566`
 
-### Stop Containers
+### Stop Infrastructure Containers
 ```bash
 docker compose down
 ```
 
 ---
 
-## 3. Running the Application
+## 4. Running the Application
 
-Ensure the Docker containers are running before launching the Spring Boot service. On startup, Liquibase will automatically detect the database and run any pending changesets.
+Ensure Docker containers are running before launching the Spring Boot service. On startup:
+* Liquibase detects MySQL and automatically applies pending changesets (`001-create-lms-tables.yaml`).
+* `SqsConfig` checks LocalStack and ensures the queue `lms-enrollment-events` exists.
 
 ### Build the Project
 * **Windows (CMD / PowerShell)**:
@@ -77,26 +134,26 @@ POST http://localhost:8080/graphql
 
 ---
 
-## 4. Database & Cache Maintenance
+## 5. Maintenance & Reset Commands
 
-### Clear the Redis Cache Only
-To clear cached rosters without touching the database:
+### Clear Redis Cache Only
+To clear cached rosters without dropping database records:
 ```bash
 docker exec -it lms-redis redis-cli FLUSHALL
 ```
 
-### Reset Both Database and Redis Cache (Clean Slate)
-To wipe all data, reset MySQL tables, and clear Redis caches back to a clean initial state:
+### Reset Database, Redis, and SQS Queues (Clean Slate)
+To wipe all persistent data, drop MySQL tables, clear Redis caches, and reset LocalStack back to an empty initial state:
 ```bash
 docker compose down -v && docker compose up -d
 ```
-*(The `-v` flag removes the persistent Docker volumes. Spring Boot will execute Liquibase from scratch on next launch).*
+*(The `-v` flag removes the persistent Docker volumes. Spring Boot will re-execute Liquibase and queue initialization on next startup).*
 
 ---
 
-## 5. Running Automated Tests
+## 6. Running Automated Tests
 
-Run the full Cucumber BDD test suite:
+Execute the full BDD test suite:
 
 * **Windows**:
   ```cmd
@@ -107,14 +164,14 @@ Run the full Cucumber BDD test suite:
   ./mvnw test
   ```
 
-An interactive HTML report is generated upon test completion at:
+An interactive HTML test execution report is generated at:
 ```text
 target/cucumber-reports.html
 ```
 
 ---
 
-## 6. Sample GraphQL Operations
+## 7. Sample GraphQL Operations
 
 Send requests to `http://localhost:8080/graphql` using Postman, Insomnia, or cURL. Every request requires the `tenant-id` header.
 
@@ -148,7 +205,8 @@ Send requests to `http://localhost:8080/graphql` using Postman, Insomnia, or cUR
 
 ---
 
-### 3. Enroll Student in Course (Triggers Cache Eviction)
+### 3. Enroll Student in Course
+*Triggers: Database insert, Redis cache eviction, and SQS event publish (`STUDENT_ENROLLED`).*
 * **Header**: `tenant-id: school-a`
 * **Body**:
   ```graphql
@@ -164,10 +222,17 @@ Send requests to `http://localhost:8080/graphql` using Postman, Insomnia, or cUR
     }
   }
   ```
+* **Observed Server Logs**:
+  ```text
+  ==> [REDIS CACHE EVICT] Successfully evicted key 'school-a:1' from Redis
+  ==> [SQS PRODUCER] Publishing event [STUDENT_ENROLLED] for Tenant: 'school-a', Course: 1, Student: 1
+  <== [SQS CONSUMER] Received Event [STUDENT_ENROLLED]: Tenant='school-a' | CourseId=1 | StudentId=1 | Grade=null
+  ```
 
 ---
 
-### 4. Assign Grade to Student (Triggers Cache Eviction)
+### 4. Assign Grade to Student
+*Triggers: Database update, Redis cache eviction, and SQS event publish (`GRADE_ASSIGNED`).*
 * **Header**: `tenant-id: school-a`
 * **Body**:
   ```graphql
@@ -178,10 +243,16 @@ Send requests to `http://localhost:8080/graphql` using Postman, Insomnia, or cUR
     }
   }
   ```
+* **Observed Server Logs**:
+  ```text
+  ==> [REDIS CACHE EVICT] Successfully evicted key 'school-a:1' from Redis
+  ==> [SQS PRODUCER] Publishing event [GRADE_ASSIGNED] for Tenant: 'school-a', Course: 1, Student: 1
+  <== [SQS CONSUMER] Received Event [GRADE_ASSIGNED]: Tenant='school-a' | CourseId=1 | StudentId=1 | Grade=95.5
+  ```
 
 ---
 
-### 5. Fetch Course Roster (Redis Cached)
+### 5. Fetch Course Roster (Redis Caching in Action)
 * **Header**: `tenant-id: school-a`
 * **Body**:
   ```graphql
@@ -201,18 +272,21 @@ Send requests to `http://localhost:8080/graphql` using Postman, Insomnia, or cUR
     }
   }
   ```
-* *First Execution*: Misses cache, loads from MySQL, stores under key `course_roster::school-a:1` in Redis.
-* *Subsequent Executions*: Served directly from Redis memory without database queries.
+* *Execution 1*: Cache miss. Data loads from MySQL, stores under key `course_roster::school-a:1` in Redis.
+  ```text
+  ==> [REDIS CACHE MISS] Fetching course 1 roster from database
+  ```
+* *Execution 2*: Cache hit. Data returns directly from Redis without hitting MySQL.
 
 ---
 
-### 6. Verify Multi-Tenant Isolation
-Switch the tenant header to `school-b` and query courses:
+### 6. Verify Multi-Tenant Data Isolation
+Switch the tenant header to `school-b` and attempt to query the course:
 * **Header**: `tenant-id: school-b`
 * **Body**:
   ```graphql
   query {
-    courses {
+    course(id: 1) {
       id
       title
     }
@@ -221,16 +295,23 @@ Switch the tenant header to `school-b` and query courses:
 * **Expected Response**:
   ```json
   {
-    "data": {
-      "courses": []
-    }
+    "errors": [
+      {
+        "message": "Course not found with id: 1",
+        "extensions": {
+          "code": "NOT_FOUND"
+        }
+      }
+    ],
+    "data": null
   }
   ```
-  *(Returns an empty list because the course belongs to `school-a`)*
+  *(Returns `NOT_FOUND` because Course 1 belongs strictly to `school-a`).*
 
 ---
 
-### 7. Drop a Student (Triggers Cache Eviction)
+### 7. Drop a Student
+*Triggers: Database deletion, Redis cache eviction, and SQS event publish (`STUDENT_DROPPED`).*
 * **Header**: `tenant-id: school-a`
 * **Body**:
   ```graphql
@@ -241,12 +322,10 @@ Switch the tenant header to `school-b` and query courses:
 
 ---
 
-### 8. Validation Error Cases
+### 8. Validation Error Scenarios
 
-#### Duplicate Enrollment Error
-Re-run `enrollStudent` with an existing course and student ID.
-* **Expected Result**: GraphQL error with code `DUPLICATE_ENROLLMENT`.
-
-#### Grade Out of Range Error
-Run `setGrade` with a grade value outside `0.0`–`100.0` (e.g., `105.0`).
-* **Expected Result**: GraphQL error with code `INVALID_GRADE`.
+| Scenario | Trigger | Error Code |
+|---|---|---|
+| **Resource Not Found** | Querying a non-existent course ID or another tenant's resource | `NOT_FOUND` |
+| **Duplicate Enrollment** | Enrolling the same student into the same course twice | `DUPLICATE_ENROLLMENT` |
+| **Out-of-Bounds Grade** | Assigning a grade outside the `0.0`–`100.0` range (e.g., `105.0`) | `INVALID_GRADE` |

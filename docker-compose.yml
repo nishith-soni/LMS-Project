@@ -24,6 +24,19 @@ services:
     volumes:
       - redis_lms_data:/data
 
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: lms-localstack
+    restart: always
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - localstack_data:/var/lib/localstack
+
 volumes:
   mysql_lms_data:
   redis_lms_data:
+  localstack_data:

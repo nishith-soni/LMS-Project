@@ -1,19 +1,24 @@
 package com.example.lms_backend.service;
 
+import com.example.lms_backend.dto.EnrollmentEvent;
 import com.example.lms_backend.entity.Course;
 import com.example.lms_backend.entity.Enrollment;
 import com.example.lms_backend.entity.Student;
+import com.example.lms_backend.event.EnrollmentEventPublisher;
 import com.example.lms_backend.exception.DuplicateEnrollmentException;
 import com.example.lms_backend.exception.InvalidGradeException;
 import com.example.lms_backend.exception.ResourceNotFoundException;
 import com.example.lms_backend.repository.CourseRepository;
 import com.example.lms_backend.repository.EnrollmentRepository;
 import com.example.lms_backend.repository.StudentRepository;
+import com.example.lms_backend.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +29,7 @@ public class EnrollmentService {
     private final CourseRepository courseRepository;
     private final StudentRepository studentRepository;
     private final RosterService rosterService;
+    private final EnrollmentEventPublisher eventPublisher;
 
     public Enrollment enrollStudent(Long courseId, Long studentId) {
         Course course = courseRepository.findById(courseId)
@@ -43,6 +49,17 @@ public class EnrollmentService {
 
         Enrollment saved = enrollmentRepository.save(enrollment);
         rosterService.evictRoster(courseId); // Evict the roster cache for the course
+
+        // Asynchronously publish event to SQS
+        eventPublisher.publishEvent(EnrollmentEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType("STUDENT_ENROLLED")
+                .tenantId(TenantContext.getTenantId())
+                .courseId(courseId)
+                .studentId(studentId)
+                .timestamp(Instant.now())
+                .build());
+
         return saved;
     }
 
@@ -55,6 +72,18 @@ public class EnrollmentService {
         enrollment.setGrade(grade);
         Enrollment saved = enrollmentRepository.save(enrollment);
         rosterService.evictRoster(courseId); // Evict the roster cache for the course
+
+        // Asynchronously publish event to SQS
+        eventPublisher.publishEvent(EnrollmentEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType("GRADE_ASSIGNED")
+                .tenantId(TenantContext.getTenantId())
+                .courseId(courseId)
+                .studentId(studentId)
+                .grade(grade)
+                .timestamp(Instant.now())
+                .build());
+
         return saved;
     }
 
@@ -64,6 +93,16 @@ public class EnrollmentService {
 
         enrollmentRepository.delete(enrollment);
         rosterService.evictRoster(courseId); // Evict the roster cache for the course
+
+        eventPublisher.publishEvent(EnrollmentEvent.builder()
+                .eventId(UUID.randomUUID().toString())
+                .eventType("STUDENT_DROPPED")
+                .tenantId(TenantContext.getTenantId())
+                .courseId(courseId)
+                .studentId(studentId)
+                .timestamp(Instant.now())
+                .build());
+
         return true;
     }
 

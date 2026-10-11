@@ -2,6 +2,15 @@ spring:
   application:
     name: lms-backend
 
+  cloud:
+    aws:
+      endpoint: http://localhost:4566
+      region:
+        static: us-east-1
+      credentials:
+        access-key: test
+        secret-key: test
+
   data:
     redis:
       host: localhost
