@@ -21,7 +21,7 @@ public class CourseService {
     }
 
     public Course getCourseById(Long id) {
-        return courseRepository.findById(id)
+        return courseRepository.findCourseById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + id));
     }
 

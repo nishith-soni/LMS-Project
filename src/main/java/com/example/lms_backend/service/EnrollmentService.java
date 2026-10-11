@@ -23,6 +23,7 @@ public class EnrollmentService {
     private final EnrollmentRepository enrollmentRepository;
     private final CourseRepository courseRepository;
     private final StudentRepository studentRepository;
+    private final RosterService rosterService;
 
     public Enrollment enrollStudent(Long courseId, Long studentId) {
         Course course = courseRepository.findById(courseId)
@@ -40,7 +41,9 @@ public class EnrollmentService {
                 .student(student)
                 .build();
 
-        return enrollmentRepository.save(enrollment);
+        Enrollment saved = enrollmentRepository.save(enrollment);
+        rosterService.evictRoster(courseId); // Evict the roster cache for the course
+        return saved;
     }
 
     public Enrollment setGrade(Long courseId, Long studentId, BigDecimal grade) {
@@ -50,7 +53,9 @@ public class EnrollmentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Enrollment not found for course id: " + courseId + " and student id: " + studentId));
 
         enrollment.setGrade(grade);
-        return enrollmentRepository.save(enrollment);
+        Enrollment saved = enrollmentRepository.save(enrollment);
+        rosterService.evictRoster(courseId); // Evict the roster cache for the course
+        return saved;
     }
 
     public boolean dropStudent(Long courseId, Long studentId) {
@@ -58,6 +63,7 @@ public class EnrollmentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Enrollment not found for course id: " + courseId + " and student id: " + studentId));
 
         enrollmentRepository.delete(enrollment);
+        rosterService.evictRoster(courseId); // Evict the roster cache for the course
         return true;
     }
 
