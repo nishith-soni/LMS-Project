@@ -6,6 +6,7 @@ import com.example.lms_backend.repository.StudentRepository;
 import com.example.lms_backend.repository.EnrollmentRepository;
 import com.example.lms_backend.tenant.TenantContext;
 import com.example.lms_backend.exception.ResourceNotFoundException;
+import com.example.lms_backend.exception.InvalidInputException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,13 @@ public class StudentService {
 
     @Transactional
     public Student createStudent(String name, String email) {
+        if (name == null || name.isBlank()) {
+            throw new InvalidInputException("Student name cannot be blank.");
+        }
+        if (email == null || email.isBlank()) {
+            throw new InvalidInputException("Student email cannot be blank.");
+        }
+
         Student student = Student.builder()
                 .name(name)
                 .email(email)

@@ -2,6 +2,7 @@ package com.example.lms_backend.config;
 
 import com.example.lms_backend.exception.DuplicateEnrollmentException;
 import com.example.lms_backend.exception.InvalidGradeException;
+import com.example.lms_backend.exception.InvalidInputException;
 import com.example.lms_backend.exception.ResourceNotFoundException;
 import graphql.ExceptionWhileDataFetching;
 import graphql.GraphQLError;
@@ -37,6 +38,9 @@ public class GraphQLErrorConfig {
                     }
                     if (exception instanceof InvalidGradeException) {
                         return buildError(fetchingError, exception.getMessage(), "INVALID_GRADE");
+                    }
+                    if (exception instanceof InvalidInputException) {
+                        return buildError(fetchingError, exception.getMessage(), "INVALID_INPUT");
                     }
                 }
                 return error;

@@ -2,6 +2,7 @@ package com.example.lms_backend.service;
 
 import com.example.lms_backend.entity.Course;
 import com.example.lms_backend.exception.ResourceNotFoundException;
+import com.example.lms_backend.exception.InvalidInputException;
 import com.example.lms_backend.repository.CourseRepository;
 import com.example.lms_backend.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,10 @@ public class CourseService {
 
     @Transactional
     public Course createCourse(String title, String description) {
+        if (title == null || title.isBlank()) {
+            throw new InvalidInputException("Course title cannot be blank.");
+        }
+
         Course course = Course.builder()
                 .title(title)
                 .description(description)
