@@ -9,7 +9,8 @@ import java.util.Optional;
 
 @Repository
 public interface EnrollmentRepository extends JpaRepository<Enrollment, Long> {
-    boolean existsByCourseIdAndStudentId(Long courseId, Long studentId);
-    Optional<Enrollment> findByCourseIdAndStudentId(Long courseId, Long studentId);
-    List<Enrollment> findAllByCourseId(Long courseId);
+    boolean existsByCourseIdAndStudentIdAndTenantId(Long courseId, Long studentId, String tenantId);
+    Optional<Enrollment> findByCourseIdAndStudentIdAndTenantId(Long courseId, Long studentId, String tenantId);
+    List<Enrollment> findAllByCourseIdAndTenantId(Long courseId, String tenantId);
+    List<Enrollment> findAllByStudentIdAndTenantId(Long studentId, String tenantId);
 }

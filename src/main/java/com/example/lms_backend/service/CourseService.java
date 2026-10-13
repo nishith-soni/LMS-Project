@@ -3,6 +3,7 @@ package com.example.lms_backend.service;
 import com.example.lms_backend.entity.Course;
 import com.example.lms_backend.exception.ResourceNotFoundException;
 import com.example.lms_backend.repository.CourseRepository;
+import com.example.lms_backend.tenant.TenantContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,11 +18,11 @@ public class CourseService {
     private final CourseRepository courseRepository;
 
     public List<Course> getAllCourses() {
-        return courseRepository.findAll();
+        return courseRepository.findAllByTenantId(TenantContext.getTenantId());
     }
 
     public Course getCourseById(Long id) {
-        return courseRepository.findCourseById(id)
+        return courseRepository.findCourseById(id, TenantContext.getTenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + id));
     }
 

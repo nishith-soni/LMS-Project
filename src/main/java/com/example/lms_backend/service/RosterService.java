@@ -10,6 +10,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.example.lms_backend.tenant.TenantContext;
 
 import java.util.List;
 
@@ -27,7 +28,7 @@ public class RosterService {
     )
     public CourseRoster getRoster(Long courseId) {
         log.info("==> [REDIS CACHE MISS] Fetching course {} roster from database", courseId);
-        List<Enrollment> enrollments = enrollmentRepository.findAllByCourseId(courseId);
+        List<Enrollment> enrollments = enrollmentRepository.findAllByCourseIdAndTenantId(courseId, TenantContext.getTenantId());
 
         List<RosterItem> items = enrollments.stream()
                 .map(e -> RosterItem.builder()

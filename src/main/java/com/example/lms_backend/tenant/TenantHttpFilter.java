@@ -21,9 +21,12 @@ public class TenantHttpFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         String tenantId = request.getHeader(TENANT_HEADER);
-        if (tenantId != null && !tenantId.isEmpty()) {
-            TenantContext.setTenantId(tenantId);
+        if (tenantId == null || tenantId.isBlank()) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST, "tenant-id header is required");
+            return;
         }
+
+        TenantContext.setTenantId(tenantId);
         try {
             filterChain.doFilter(request, response);
         } finally {

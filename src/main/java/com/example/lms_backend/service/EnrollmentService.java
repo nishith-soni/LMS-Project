@@ -32,13 +32,13 @@ public class EnrollmentService {
     private final EnrollmentEventPublisher eventPublisher;
 
     public Enrollment enrollStudent(Long courseId, Long studentId) {
-        Course course = courseRepository.findById(courseId)
+        Course course = courseRepository.findCourseById(courseId, TenantContext.getTenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Course not found with id: " + courseId));
 
-        Student student = studentRepository.findById(studentId)
+        Student student = studentRepository.findStudentById(studentId, TenantContext.getTenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Student not found with id: " + studentId));
 
-        if (enrollmentRepository.existsByCourseIdAndStudentId(courseId, studentId)) {
+        if (enrollmentRepository.existsByCourseIdAndStudentIdAndTenantId(courseId, studentId, TenantContext.getTenantId())) {
             throw new DuplicateEnrollmentException("Student with id " + studentId + " is already enrolled in course with id " + courseId);
         }
 
@@ -66,7 +66,7 @@ public class EnrollmentService {
     public Enrollment setGrade(Long courseId, Long studentId, BigDecimal grade) {
         validateGradeRange(grade);
 
-        Enrollment enrollment = enrollmentRepository.findByCourseIdAndStudentId(courseId, studentId)
+        Enrollment enrollment = enrollmentRepository.findByCourseIdAndStudentIdAndTenantId(courseId, studentId, TenantContext.getTenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Enrollment not found for course id: " + courseId + " and student id: " + studentId));
 
         enrollment.setGrade(grade);
@@ -88,7 +88,7 @@ public class EnrollmentService {
     }
 
     public boolean dropStudent(Long courseId, Long studentId) {
-        Enrollment enrollment = enrollmentRepository.findByCourseIdAndStudentId(courseId, studentId)
+        Enrollment enrollment = enrollmentRepository.findByCourseIdAndStudentIdAndTenantId(courseId, studentId, TenantContext.getTenantId())
                 .orElseThrow(() -> new ResourceNotFoundException("Enrollment not found for course id: " + courseId + " and student id: " + studentId));
 
         enrollmentRepository.delete(enrollment);
